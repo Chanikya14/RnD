@@ -1,0 +1,1 @@
+nvcc -o $1 $1.cu Cuda_Ipc_Manager.cu -lcudart && ./$1
