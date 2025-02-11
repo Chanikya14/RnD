@@ -18,8 +18,8 @@ __global__ void k2(int *data) {
 
 int main() {
     
-    CudaIpcManager manager(SHM_NAME);
-    int *d_data = (int*)manager.importMemory();
+    CudaIpcManager manager(SHM_NAME); // Object creation
+    int *d_data = (int*)manager.importMemory(); // import handle
 
     if(d_data!=NULL) {
         // Launch kernel to modify data

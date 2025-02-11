@@ -19,7 +19,7 @@ __global__ void k1(int *data) {
 
 int main() {
 
-    CudaIpcManager manager(SHM_NAME);
+    CudaIpcManager manager(SHM_NAME); // Object creation
 
     int *d_data;
     cudaMalloc(&d_data, SIZE * sizeof(int));
@@ -27,7 +27,7 @@ int main() {
     k1<<<1,1>>> (d_data);
     cudaDeviceSynchronize();
 
-    manager.exportMemory(d_data, SIZE * sizeof(int));
+    manager.exportMemory(d_data, SIZE * sizeof(int)); // export handle
 
     std::cout << "IPC Handle sent to shared memory" << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(5));
