@@ -4,93 +4,137 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cstring>
+#include <pthread.h>
 
-CudaIpcManager::CudaIpcManager(const std::string& name) : shmName(name), shm_fd(-1), shm_ptr(nullptr) {}
+enum AccessMode { READ, WRITE };
 
-// Sender: Export IPC handle
-bool CudaIpcManager::exportMemory(void* d_ptr, size_t size) {
-    cudaIpcMemHandle_t ipcHandle;
-    if (cudaIpcGetMemHandle(&ipcHandle, d_ptr) != cudaSuccess) {
-        std::cerr << "Failed to get CUDA IPC handle\n";
-        return false;
+struct Control_data {
+    size_t offset_start;
+    size_t offset_end;
+    pthread_rwlock_t rwlock; // Reader-Writer Lock
+
+    Control_data() {
+        pthread_rwlock_init(&rwlock, NULL);
     }
 
-    shm_fd = shm_open(shmName.c_str(), O_CREAT | O_RDWR, 0666);
+    ~Control_data() {
+        pthread_rwlock_destroy(&rwlock);
+    }
+
+    bool acquireReadLock() {
+        return pthread_rwlock_rdlock(&rwlock) == 0;
+    }
+
+    bool acquireWriteLock() {
+        return pthread_rwlock_wrlock(&rwlock) == 0;
+    }
+
+    void releaseLock() {
+        pthread_rwlock_unlock(&rwlock);
+    }
+};
+
+class CudaIpcManager {
+private:
+    std::string data_shm, meta_shm;
+    int shm_fd;
+    void* shm_ptr;
+
+public:
+    CudaIpcManager(const std::string& data_name, const std::string& meta_name);
+    bool exportMemory(void* d_ptr, size_t size);
+    const void* importMemory(AccessMode mode);
+    void cleanup();
+    ~CudaIpcManager();
+};
+
+// Constructor
+CudaIpcManager::CudaIpcManager(const std::string& data_name, const std::string& meta_name) : data_shm(data_name), meta_shm(meta_name), shm_fd(-1), shm_ptr(nullptr) {}
+
+// Sender: Export IPC handle (Checks and acquires write lock)
+bool CudaIpcManager::exportMemory(void* d_ptr, size_t size) {
+    shm_fd = shm_open(meta_shm.c_str(), O_CREAT | O_RDWR, 0666);
     if (shm_fd == -1) {
         std::cerr << "Failed to open shared memory\n";
         return false;
     }
 
-    if (ftruncate(shm_fd, sizeof(cudaIpcMemHandle_t)) == -1) {
+    if (ftruncate(shm_fd, sizeof(Control_data) + sizeof(cudaIpcMemHandle_t)) == -1) {
         std::cerr << "Failed to set shared memory size\n";
         return false;
     }
 
-    shm_ptr = mmap(NULL, sizeof(cudaIpcMemHandle_t), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    shm_ptr = mmap(NULL, sizeof(Control_data) + sizeof(cudaIpcMemHandle_t), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (shm_ptr == MAP_FAILED) {
         std::cerr << "Failed to map shared memory\n";
         return false;
     }
 
-    memcpy(shm_ptr, &ipcHandle, sizeof(cudaIpcMemHandle_t));
-    std::cerr << "Sucess"<<std::endl;
+    Control_data* ctrl = static_cast<Control_data*>(shm_ptr);
+    if (!ctrl->acquireWriteLock()) {
+        std::cerr << "Failed to acquire write lock\n";
+        return false;
+    }
+
+    cudaIpcMemHandle_t ipcHandle;
+    if (cudaIpcGetMemHandle(&ipcHandle, d_ptr) != cudaSuccess) {
+        std::cerr << "Failed to get CUDA IPC handle\n";
+        ctrl->releaseLock();
+        return false;
+    }
+
+    memcpy(static_cast<void*>(ctrl + 1), &ipcHandle, sizeof(cudaIpcMemHandle_t));
+
+    std::cerr << "Export success" << std::endl;
+    ctrl->releaseLock();
     return true;
 }
 
-// Receiver: Import IPC handle
-void* CudaIpcManager::importMemory() {
-
-    cudaIpcMemHandle_t ipcHandle;
-    bool handleReceived = false;
-    void* d_data;
-
-    // Open the shared memory where the IPC handle is stored
-    int shm_fd = shm_open(shmName.c_str(), O_RDWR, 0666);
+// Receiver: Import IPC handle (Checks and acquires read/write lock)
+const void* CudaIpcManager::importMemory(AccessMode mode) {
+    shm_fd = shm_open(shmName.c_str(), O_RDWR, 0666);
     if (shm_fd == -1) {
         std::cerr << "Failed to open shared memory" << std::endl;
         return NULL;
     }
 
-    // Wait for the handle to be available for 10 seconds (check every second)
-    auto start = std::chrono::steady_clock::now();
-    while (true) {
-        // Map the shared memory into the process's address space
-        void *shm_ptr = mmap(NULL, sizeof(cudaIpcMemHandle_t), PROT_READ, MAP_SHARED, shm_fd, 0);
-        if (shm_ptr != MAP_FAILED) {
-            // Copy the IPC handle from shared memory
-            memcpy(&ipcHandle, shm_ptr, sizeof(cudaIpcMemHandle_t));
-            std::cout << "Received IPC Handle from shared memory" << std::endl;
-            handleReceived = true;
-            break; // Exit the loop once the handle is received
-        }
-
-        // Check if 10 seconds have passed
-        auto now = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsed = now - start;
-        if (elapsed.count() >= 10) {
-            std::cerr << "Failed to receive IPC handle after 10 seconds" << std::endl;
-            return NULL; // Exit after 10 seconds without receiving the handle
-        }
-
-        // Wait for 1 second before trying again
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+    shm_ptr = mmap(NULL, sizeof(Control_data) + sizeof(cudaIpcMemHandle_t), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shm_ptr == MAP_FAILED) {
+        std::cerr << "Failed to map shared memory\n";
+        return NULL;
     }
 
-    // Open the memory using the IPC handle
-    if (handleReceived) {
-        cudaError_t err = cudaIpcOpenMemHandle((void**)(&d_data), ipcHandle, cudaIpcMemLazyEnablePeerAccess);
-        if (err != cudaSuccess) {
-            std::cerr << "cudaIpcOpenMemHandle failed: " << cudaGetErrorString(err) << std::endl;
+    Control_data* ctrl = static_cast<Control_data*>(shm_ptr);
+    if (mode == READ) {
+        if (!ctrl->acquireReadLock()) {
+            std::cerr << "Failed to acquire read lock\n";
+            return NULL;
+        }
+    } else {
+        if (!ctrl->acquireWriteLock()) {
+            std::cerr << "Failed to acquire write lock\n";
             return NULL;
         }
     }
+
+    cudaIpcMemHandle_t ipcHandle;
+    memcpy(&ipcHandle, static_cast<void*>(ctrl + 1), sizeof(cudaIpcMemHandle_t));
+
+    void* d_data = nullptr;
+    if (cudaIpcOpenMemHandle(&d_data, ipcHandle, cudaIpcMemLazyEnablePeerAccess) != cudaSuccess) {
+        std::cerr << "cudaIpcOpenMemHandle failed\n";
+        ctrl->releaseLock();
+        return NULL;
+    }
+
+    ctrl->releaseLock();
     return d_data;
 }
 
 // Cleanup function
 void CudaIpcManager::cleanup() {
     if (shm_ptr) {
-        munmap(shm_ptr, sizeof(cudaIpcMemHandle_t));
+        munmap(shm_ptr, sizeof(Control_data) + sizeof(cudaIpcMemHandle_t));
         shm_ptr = nullptr;
     }
     if (shm_fd != -1) {

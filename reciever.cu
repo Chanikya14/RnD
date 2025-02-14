@@ -7,6 +7,7 @@
 
 #define SIZE 1024
 #define SHM_NAME "/cuda_shm"
+#define META_SHM "/meta_shm"
 
 // CUDA Kernel to perform simple operations on data
 __global__ void k2(int *data) {

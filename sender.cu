@@ -8,6 +8,7 @@
 
 #define SIZE 1024
 #define SHM_NAME "/cuda_shm"
+#define META_SHM "/meta_shm"
 
 __global__ void k1(int *data) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
