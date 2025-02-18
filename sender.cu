@@ -20,7 +20,7 @@ __global__ void k1(int *data) {
 
 int main() {
 
-    CudaIpcManager manager(SHM_NAME); // Object creation
+    CudaIpcManager manager(SHM_NAME, META_SHM); // Object creation
 
     int *d_data;
     cudaMalloc(&d_data, SIZE * sizeof(int));

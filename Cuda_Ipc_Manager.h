@@ -6,24 +6,25 @@
 #include <chrono>
 #include <thread>
 
+enum AccessMode { READ, WRITE };
+
 class CudaIpcManager {
+private:
+    std::string data_shm, meta_shm;
+    int shm_fd, data_fd;
+    void* shm_ptr;
 public:
-    CudaIpcManager(const std::string& shmName);
+    CudaIpcManager(const std::string& meta_shm, const std::string& data_shm);
     ~CudaIpcManager();
 
     // Sender: Exports GPU memory handle
     bool exportMemory(void* d_ptr, size_t size);
 
     // Receiver: Imports GPU memory handle
-    void* importMemory();
+    void* importMemory(AccessMode mode);
 
     // Cleanup
     void cleanup();
-
-private:
-    std::string shmName;
-    int shm_fd;
-    void* shm_ptr;
 };
 
 #endif // CUDA_IPC_MANAGER_H

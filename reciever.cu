@@ -19,8 +19,8 @@ __global__ void k2(int *data) {
 
 int main() {
     
-    CudaIpcManager manager(SHM_NAME); // Object creation
-    int *d_data = (int*)manager.importMemory(); // import handle
+    CudaIpcManager manager(SHM_NAME, META_SHM); // Object creation
+    int *d_data = (int*)manager.importMemory(WRITE); // import handle
 
     if(d_data!=NULL) {
         // Launch kernel to modify data
@@ -29,6 +29,7 @@ int main() {
         k2<<<blocksPerGrid, threadsPerBlock>>>(d_data);
         cudaDeviceSynchronize();
 
+        manager.release_RL();
         // Copy modified data back to host
         int* h_data = new int[SIZE];
         cudaMemcpy(h_data, d_data, SIZE * sizeof(int), cudaMemcpyDeviceToHost);
