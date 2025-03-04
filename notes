@@ -1,0 +1,25 @@
+make it as an abstraction like a library                => Done
+lookup literature with "ipchandle" gpu workflows        => doing
+shared memory(unified va) with this primitve            => Not supported, only supported for cudaMalloc
+is uvm_driver sensitive to this primitve                => Should talk with Ishaan => Done
+
+Qn. how to setup a workflow chain?
+Qn. What about multi-gpu setup?
+
+Meta data layer
+    NF should first probe meta data and based on that it should access the data
+synchronization
+    Can use signals
+intermediate results(later)
+
+
+Design meta layer:
+    offset
+    locks for synchronization
+
+Current week goals:
+    setup dummy workflow of imag eprocessing or video processing using references
+    lookup video to cartoon video workflow
+    when the memory is to be shared across 2 vms with virtualized cuda api layer
+    gpu direct(can write/copy data from gpu to nvme ssd disk), 
+    properties of the memhandle memory(is it pinned or any ref count), what happens of free called on it => talk with utkarsh
