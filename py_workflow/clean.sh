@@ -1,0 +1,1 @@
+kill $(ps aux | grep -E 'main.py|median.py|sharpen.py|threshold.py' | grep -v grep | awk '{print $2}')

@@ -1,0 +1,16 @@
+ 08-03-2025 18:05:22:969 [pid=4184 tid=4184] NOTICE  cufio-drv:727 running in compatible mode
+ 08-03-2025 18:05:22:970 [pid=4184 tid=4184] ERROR  cufio-plat:876 Platform does not have any supported GPU!
+ 08-03-2025 18:05:22:971 [pid=4184 tid=4184] ERROR  cufio_core:997 platform is not supported by cufile
+ 08-03-2025 18:05:22:971 [pid=4184 tid=4184] ERROR  cufio_core:1091 cuFile initialization failed
+ 08-03-2025 18:07:09:814 [pid=4266 tid=4266] NOTICE  cufio-drv:727 running in compatible mode
+ 08-03-2025 18:07:09:815 [pid=4266 tid=4266] ERROR  cufio-plat:876 Platform does not have any supported GPU!
+ 08-03-2025 18:07:09:815 [pid=4266 tid=4266] ERROR  cufio_core:997 platform is not supported by cufile
+ 08-03-2025 18:07:09:815 [pid=4266 tid=4266] ERROR  cufio_core:1091 cuFile initialization failed
+ 08-03-2025 18:08:24:727 [pid=4315 tid=4315] NOTICE  cufio-drv:727 running in compatible mode
+ 08-03-2025 18:08:24:728 [pid=4315 tid=4315] ERROR  cufio-plat:876 Platform does not have any supported GPU!
+ 08-03-2025 18:08:24:728 [pid=4315 tid=4315] ERROR  cufio_core:997 platform is not supported by cufile
+ 08-03-2025 18:08:24:728 [pid=4315 tid=4315] ERROR  cufio_core:1091 cuFile initialization failed
+ 08-03-2025 18:09:24:495 [pid=4342 tid=4342] NOTICE  cufio-drv:727 running in compatible mode
+ 08-03-2025 18:09:24:495 [pid=4342 tid=4342] ERROR  cufio-plat:876 Platform does not have any supported GPU!
+ 08-03-2025 18:09:24:495 [pid=4342 tid=4342] ERROR  cufio_core:997 platform is not supported by cufile
+ 08-03-2025 18:09:24:495 [pid=4342 tid=4342] ERROR  cufio_core:1091 cuFile initialization failed
