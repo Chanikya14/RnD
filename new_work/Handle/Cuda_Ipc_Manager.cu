@@ -185,9 +185,6 @@ void* CudaIpcManager::importMemory(AccessMode mode) {
     return d_data;
 }
 
-void CudaIpcManager::release_RL(){
-
-}
 
 
 // Cleanup function
