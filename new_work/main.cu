@@ -3,6 +3,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "Handle/Cuda_Ipc_Manager.h"
 
 int main() {
     cv::Mat image = cv::imread("nebula.jpeg", cv::IMREAD_COLOR);
