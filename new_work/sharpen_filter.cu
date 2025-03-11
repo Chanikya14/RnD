@@ -1,10 +1,12 @@
-#include <opencv2/opencv.hpp>
-#include <iostream>
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <cuda_runtime.h>
+#include <iostream>
+#include <unistd.h>
 #include "Handle/Cuda_Ipc_Manager.h"
+
+#define META_SHM_SHARPEN "sharpen_meta"
+#define DATA_SHM_SHARPEN "sharpen_data"
+#define META_SHM_THRESHOLD "threshold_meta"
+#define DATA_SHM_THRESHOLD "threshold_data"
 
 __global__ void sharpenKernel(unsigned char* input, unsigned char* output, int width, int height, int channels) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -34,24 +36,30 @@ __global__ void sharpenKernel(unsigned char* input, unsigned char* output, int w
 }
 
 void applySharpenFilter() {
-    cv::Mat image = cv::imread("step2.jpg", cv::IMREAD_COLOR);
-    if (image.empty()) {
-        std::cerr << "Error: Step2 image missing!" << std::endl;
+    CudaIpcManager ipc_sharpen(META_SHM_SHARPEN, DATA_SHM_SHARPEN);
+    CudaIpcManager ipc_threshold(META_SHM_THRESHOLD, DATA_SHM_THRESHOLD);
+
+    // Import GPU memory from sharpen input
+    unsigned char* d_input = (unsigned char*)ipc_sharpen.importMemory(READ);
+    if (!d_input) {
+        std::cerr << "Error: Failed to import GPU memory!" << std::endl;
         return;
     }
 
-    int width = image.cols;
-    int height = image.rows;
-    int channels = image.channels();
-    int size = width * height * channels;
+    // Set image dimensions
+    int width = 675;
+    int height = 225;
+    int channels = 3;
+    size_t pitch;
 
-    // Allocate GPU memory
-    unsigned char *d_input, *d_output;
-    cudaMalloc((void**)&d_input, size);
-    cudaMalloc((void**)&d_output, size);
+    // Allocate GPU memory for output with pitch
+    unsigned char* d_output;
+    if (cudaMallocPitch((void**)&d_output, &pitch, width , height) != cudaSuccess) {
+        std::cerr << "Error: Failed to allocate GPU memory for output!" << std::endl;
+        return;
+    }
 
-    // Copy image to GPU
-    cudaMemcpy(d_input, image.data, size, cudaMemcpyHostToDevice);
+    // cudaMemset2D(d_output, pitch, 0, width * channels, height);
 
     // Launch CUDA Kernel
     dim3 blockSize(16, 16);
@@ -59,31 +67,17 @@ void applySharpenFilter() {
     sharpenKernel<<<gridSize, blockSize>>>(d_input, d_output, width, height, channels);
     cudaDeviceSynchronize();
 
-    // Copy result back to CPU
-    cudaMemcpy(image.data, d_output, size, cudaMemcpyDeviceToHost);
-    cv::imwrite("step3.jpg", image);
+    // Export processed image to the next stage (threshold filter)
+    ipc_threshold.exportMemory(d_output, pitch * height);
 
+    std::cout << "Sharpen Filter (CUDA): Applied and exported to threshold filter." << std::endl;
+    sleep(10);
     // Free GPU memory
-    cudaFree(d_input);
     cudaFree(d_output);
-
-    std::cout << "Sharpen Filter (CUDA): Applied, signaling threshold..." << std::endl;
-
-    // Send signal to next process
-    pid_t pid = std::stoi(std::string(std::getenv("THRESHOLD_PID")));
-    kill(pid, SIGUSR1);
-
-    exit(0); // Terminate after processing
-}
-
-void signalHandler(int signum) {
-    if (signum == SIGUSR1) {
-        applySharpenFilter();
-    }
 }
 
 int main() {
-    signal(SIGUSR1, signalHandler);
-    std::cout << "Sharpen Filter (CUDA): Waiting for signal..." << std::endl;
-    pause(); // Wait for signal, then terminate
+    std::cout << "Sharpen Filter (CUDA): Processing..." << std::endl;
+    applySharpenFilter();
+    return 0;
 }

@@ -62,12 +62,20 @@ bool CudaIpcManager::exportMemory(void* d_ptr, size_t size) {
     }
     // Acquired write lock
 
+    std::cerr<<"Before getting handle"<<std::endl;
+
     cudaIpcMemHandle_t ipcHandle;
-    if (cudaIpcGetMemHandle(&ipcHandle, d_ptr) != cudaSuccess) {
-        std::cerr << "Failed to get CUDA IPC handle\n";
+    cudaError_t err = cudaIpcGetMemHandle(&ipcHandle, d_ptr);
+    if (err != cudaSuccess) {
+        std::cerr << "Failed to get CUDA IPC handle: " << cudaGetErrorString(err) << "\n";
         ctrl->releaseLock();
         return false;
     }
+    // if (cudaIpcGetMemHandle(&ipcHandle, d_ptr) != cudaSuccess) {
+    //     std::cerr << "Failed to get CUDA IPC handle\n";
+    //     ctrl->releaseLock();
+    //     return false;
+    // }
 
 
     data_fd = shm_open(data_shm.c_str(), O_CREAT | O_RDWR, 0666);

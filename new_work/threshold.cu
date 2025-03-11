@@ -1,10 +1,12 @@
-#include <opencv2/opencv.hpp>
-#include <iostream>
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <cuda_runtime.h>
+#include <iostream>
+#include <unistd.h>
 #include "Handle/Cuda_Ipc_Manager.h"
+
+#define META_SHM_THRESHOLD "threshold_meta"
+#define DATA_SHM_THRESHOLD "threshold_data"
+#define META_SHM_FINAL "final_meta"
+#define DATA_SHM_FINAL "final_data"
 
 __global__ void thresholdKernel(unsigned char* input, unsigned char* output, int width, int height, int threshold) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -17,23 +19,28 @@ __global__ void thresholdKernel(unsigned char* input, unsigned char* output, int
 }
 
 void applyThreshold() {
-    cv::Mat image = cv::imread("step3.jpg", cv::IMREAD_GRAYSCALE);
-    if (image.empty()) {
-        std::cerr << "Error: Step3 image missing!" << std::endl;
+    CudaIpcManager ipc_threshold(META_SHM_THRESHOLD, DATA_SHM_THRESHOLD);
+    CudaIpcManager ipc_final(META_SHM_FINAL, DATA_SHM_FINAL);
+
+    // Import GPU memory from threshold input
+    unsigned char* d_input = (unsigned char*)ipc_threshold.importMemory(READ);
+    if (!d_input) {
+        std::cerr << "Error: Failed to import GPU memory!" << std::endl;
         return;
     }
 
-    int width = image.cols;
-    int height = image.rows;
-    int size = width * height;
+    // Assume image dimensions (should be shared properly)
+    int width = 675;
+    int height = 225;
+    size_t pitch;
 
-    // Allocate GPU memory
-    unsigned char *d_input, *d_output;
-    cudaMalloc((void**)&d_input, size);
-    cudaMalloc((void**)&d_output, size);
+    // Allocate GPU memory for output with pitch
+    unsigned char* d_output;
+    if (cudaMallocPitch((void**)&d_output, &pitch, width , height) != cudaSuccess) {
+        std::cerr << "Error: Failed to allocate GPU memory for output!" << std::endl;
+        return;
+    }
 
-    // Copy image to GPU
-    cudaMemcpy(d_input, image.data, size, cudaMemcpyHostToDevice);
 
     // Launch CUDA Kernel
     dim3 blockSize(16, 16);
@@ -41,31 +48,17 @@ void applyThreshold() {
     thresholdKernel<<<gridSize, blockSize>>>(d_input, d_output, width, height, 128);
     cudaDeviceSynchronize();
 
-    // Copy result back to CPU
-    cudaMemcpy(image.data, d_output, size, cudaMemcpyDeviceToHost);
-    cv::imwrite("output.jpg", image);
+    // Export processed image to the final stage
+    ipc_final.exportMemory(d_output, pitch * height);
 
+    std::cout << "Thresholding (CUDA): Applied and exported to final stage." << std::endl;
+    sleep(10);
     // Free GPU memory
-    cudaFree(d_input);
     cudaFree(d_output);
-
-    std::cout << "Thresholding (CUDA): Applied, signaling final.cu..." << std::endl;
-
-    // Send signal to next process
-    pid_t pid = std::stoi(std::string(std::getenv("FINAL_PID")));
-    kill(pid, SIGUSR1);
-
-    exit(0); // Terminate after processing
-}
-
-void signalHandler(int signum) {
-    if (signum == SIGUSR1) {
-        applyThreshold();
-    }
 }
 
 int main() {
-    signal(SIGUSR1, signalHandler);
-    std::cout << "Thresholding (CUDA): Waiting for signal..." << std::endl;
-    pause(); // Wait for signal, then terminate
+    std::cout << "Thresholding (CUDA): Processing..." << std::endl;
+    applyThreshold();
+    return 0;
 }

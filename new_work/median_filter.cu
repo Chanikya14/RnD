@@ -1,10 +1,13 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
 #include <cuda_runtime.h>
+#include <unistd.h>
 #include "Handle/Cuda_Ipc_Manager.h"
+
+#define META_SHM_MEDIAN "median_meta"
+#define DATA_SHM_MEDIAN "median_data"
+#define META_SHM_SHARPEN "sharpen_meta"
+#define DATA_SHM_SHARPEN "sharpen_data"
 
 #define KERNEL_SIZE 5  // 5x5 median filter
 
@@ -46,62 +49,52 @@ __global__ void medianFilterKernel(unsigned char* input, unsigned char* output, 
 }
 
 void applyMedianFilter() {
-    cv::Mat image = cv::imread("step1.jpg", cv::IMREAD_COLOR);
-    if (image.empty()) {
-        std::cerr << "Error: Step1 image missing!" << std::endl;
+    CudaIpcManager ipc_median(META_SHM_MEDIAN, DATA_SHM_MEDIAN);
+    CudaIpcManager ipc_sharpen(META_SHM_SHARPEN, DATA_SHM_SHARPEN);
+
+    // Import GPU memory from median input
+    unsigned char* d_input = (unsigned char*)ipc_median.importMemory(READ);
+    if (!d_input) {
+        std::cerr << "Error: Failed to import GPU memory!" << std::endl;
         return;
     }
 
-    int width = image.cols;
-    int height = image.rows;
-    int channels = image.channels();
-    int size = width * height * channels;
+    // TODO: Assume image dimensions (should ideally be shared metadata)
+    int width = 675;  // Example values
+    int height = 225;
+    int channels = 3;
+    size_t pitch; // Pitch value
 
-    // Allocate GPU memory
-    unsigned char *d_input, *d_output;
-    cudaMalloc((void**)&d_input, size);
-    cudaMalloc((void**)&d_output, size);
+    // Allocate GPU memory for output with pitch
+    unsigned char* d_output;
+    if (cudaMallocPitch((void**)&d_output, &pitch, width, height) != cudaSuccess) {
+        std::cerr << "Error: Failed to allocate GPU memory for output!" << std::endl;
+        return;
+    }
 
-    // Copy image to GPU
-    cudaMemcpy(d_input, image.data, size, cudaMemcpyHostToDevice);
-
-    // Launch CUDA Kernel
+    // Launch CUDA Kernel (updated for pitch)
     dim3 blockSize(16, 16);
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
     medianFilterKernel<<<gridSize, blockSize>>>(d_input, d_output, width, height, channels);
     cudaDeviceSynchronize();
 
-    // Copy result back to CPU
-    cudaMemcpy(image.data, d_output, size, cudaMemcpyDeviceToHost);
-    cv::imwrite("step2.jpg", image);
+    // Debugging
+    std::cout << "Here" << std::endl;
+    if (!d_output) std::cerr << "NULL pointer detected!" << std::endl;
+
+    // Export processed image to the next stage (sharpen filter)
+    ipc_sharpen.exportMemory(d_output, pitch * height);
+
+    std::cout << "Median Filter (CUDA): Applied and exported to sharpen filter." << std::endl;
+    sleep(10);
 
     // Free GPU memory
-    cudaFree(d_input);
     cudaFree(d_output);
-
-    std::cout << "Median Filter (CUDA): Applied, signaling sharpen_filter..." << std::endl;
-
-    // Send signal to next process
-    const char* pid_env = std::getenv("SHARPEN_PID");
-    if (!pid_env) {
-        std::cerr << "Error: SHARPEN_PID environment variable not set!" << std::endl;
-        exit(1);
-    }
-
-    pid_t pid = std::stoi(std::string(pid_env));
-    kill(pid, SIGUSR1);
-
-    exit(0); // Terminate after processing
 }
 
-void signalHandler(int signum) {
-    if (signum == SIGUSR1) {
-        applyMedianFilter();
-    }
-}
 
 int main() {
-    signal(SIGUSR1, signalHandler);
-    std::cout << "Median Filter (CUDA): Waiting for signal..." << std::endl;
-    pause(); // Wait for signal, then terminate
+    std::cout << "Median Filter (CUDA): Processing..." << std::endl;
+    applyMedianFilter();
+    return 0;
 }

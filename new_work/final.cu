@@ -1,21 +1,41 @@
+#include <opencv2/opencv.hpp>
 #include <iostream>
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <cuda_runtime.h>
+#include "Handle/Cuda_Ipc_Manager.h"
+
+#define META_SHM_FINAL "final_meta"
+#define DATA_SHM_FINAL "final_data"
 
 void finalStep() {
-    std::cout << "Final Step: Processing completed! Output saved as output.jpg." << std::endl;
-    exit(0);
-}
+    CudaIpcManager ipc_final(META_SHM_FINAL, DATA_SHM_FINAL);
 
-void signalHandler(int signum) {
-    if (signum == SIGUSR1) {
-        finalStep();
+    // Import GPU memory from final step
+    unsigned char* d_output = (unsigned char*)ipc_final.importMemory(READ);
+    if (!d_output) {
+        std::cerr << "Error: Failed to import GPU memory!" << std::endl;
+        return;
     }
+
+    // Set image dimensions
+    int width = 675;
+    int height = 225;
+    int size = width * height;
+
+    // Allocate CPU memory
+    std::vector<unsigned char> h_output(size);
+
+    // Copy GPU memory to CPU
+    cudaMemcpy(h_output.data(), d_output, size, cudaMemcpyDeviceToHost);
+
+    // Convert to OpenCV Mat and save
+    cv::Mat image(height, width, CV_8UC1, h_output.data());
+    cv::imwrite("final.jpeg", image);
+
+    std::cout << "Final Step: Output saved as final.jpeg." << std::endl;
 }
 
 int main() {
-    signal(SIGUSR1, signalHandler);
-    std::cout << "Final Step: Waiting for signal..." << std::endl;
-    pause(); // Wait for signal, then terminate
+    std::cout << "Final Step: Processing..." << std::endl;
+    finalStep();
+    return 0;
 }
