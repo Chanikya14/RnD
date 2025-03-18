@@ -1,48 +1,58 @@
 import cupy as cp
-import multiprocessing
-from multiprocessing.shared_memory import SharedMemory
+import numpy as np
+from multiprocessing import shared_memory
+import time
+import cupyx.scipy.ndimage as cnd  # Import CuPy's optimized convolution function
 
-def sharpen_filter(shared_mem_name):
-    print("Sharpen Filter: Waiting for signal...")
+def sharpen_filter(input_mem_name, output_mem_name):
+    print("Sharpen Filter: Waiting for shared memory...")
+
+    # Open input shared memory
+    input_mem = shared_memory.SharedMemory(name=input_mem_name)
+
+    # Read image shape
+    img_shape = np.ndarray(3, dtype=np.int32, buffer=input_mem.buf, offset=0)
     
-    # Open shared memory to get memory handle from median filter
-    shared_mem = SharedMemory(name=shared_mem_name)
-    mem_handle = bytes(shared_mem.buf[:])  # Read memory handle from shared memory
-    shared_mem.close()
+    print("Sharpen Filter: Shape received", img_shape)
 
-    # Open CUDA memory using IPC
-    mem_ptr = cp.cuda.runtime.ipcOpenMemHandle(mem_handle)
-    if mem_ptr is None or mem_ptr == 0:
-        raise RuntimeError("Failed to open memory handle!")
+    # Read image data
+    img_data = np.frombuffer(input_mem.buf, dtype=np.uint8, offset=12).reshape(tuple(img_shape))
+    gpu_image = cp.asarray(img_data)
 
-    # Map the memory to CuPy
-    mem = cp.cuda.memory.BaseMemory(mem_ptr)
-    gpu_image = cp.ndarray((512, 512, 3), dtype=cp.uint8, memptr=cp.cuda.MemoryPointer(mem, 0))
+    print("Sharpen Filter: Image received, applying sharpen filter...")
 
-    # Sharpening kernel
-    sharpen_kernel = cp.array([[0, -1, 0],
-                               [-1, 5, -1],
-                               [0, -1, 0]], dtype=cp.float32)
+    # **Sharpen Kernel (3x3)**
+    kernel = cp.array([[ 0, -1,  0],
+                       [-1,  5, -1],
+                       [ 0, -1,  0]], dtype=cp.float32)
 
-    # Apply convolution (sharpening)
-    sharpened_image = cp.apply_along_axis(lambda x: cp.convolve(x, sharpen_kernel, mode='same'), 2, gpu_image)
+    # **Apply Sharpen Filter**
+    sharpened_image = cp.empty_like(gpu_image)
+    for c in range(gpu_image.shape[2]):  # Apply per channel
+        sharpened_image[:, :, c] = cp.clip(cnd.convolve(gpu_image[:, :, c], kernel, mode='constant'), 0, 255)
 
-    # Allocate new GPU memory for sharpened image
-    sharpened_gpu_image = cp.array(sharpened_image, copy=True)
+    print("Sharpen Filter: Applied successfully!")
 
-    # Create shared memory for the sharpened image's CUDA memory handle
-    new_mem_handle = cp.cuda.runtime.ipcGetMemHandle(sharpened_gpu_image.data.ptr)
-    new_shared_mem = SharedMemory(name="sharpened_ipc_handle", create=True, size=len(new_mem_handle))
-    new_shared_mem.buf[:len(new_mem_handle)] = new_mem_handle
-    new_shared_mem.close()
+    # **Write to Shared Memory**
+    output_size = sharpened_image.nbytes + 12  # 12 bytes for shape storage
+    output_mem = shared_memory.SharedMemory(name=output_mem_name, create=True, size=output_size)
 
-    print("Sharpen Filter: Applied, signaling thresholding...")
-    threshold_ready.set()  # Signal the next process
+    # Store shape
+    np.ndarray(3, dtype=np.int32, buffer=output_mem.buf, offset=0)[:] = img_shape
+
+    # Store sharpened image
+    output_mem.buf[12:] = sharpened_image.get().tobytes()
+
+    print("Sharpen Filter: Output written to shared memory.")
+
+    # Wait before cleanup
+    time.sleep(5)
+
+    # Cleanup
+    input_mem.close()
+    output_mem.close()
 
 if __name__ == "__main__":
-    shared_mem_name = "filtered_ipc_handle"
-    threshold_ready = multiprocessing.Event()
-
-    sharpen_process = multiprocessing.Process(target=sharpen_filter, args=(shared_mem_name,))
-    sharpen_process.start()
-    sharpen_process.join()
+    input_mem_name = "median_output"  # Read from median filter output
+    output_mem_name = "sharpen_output"  # Write to threshold filter input
+    sharpen_filter(input_mem_name, output_mem_name)

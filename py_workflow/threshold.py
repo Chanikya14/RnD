@@ -1,34 +1,40 @@
 import cupy as cp
+import numpy as np
 import cv2
-import multiprocessing
+from multiprocessing import shared_memory
 
-def threshold_filter():
-    # Wait for the signal from sharpen.py
-    # threshold_ready.wait()
-    # time.sleep(5)
+def threshold_filter(input_mem_name, output_filename, threshold_value=128):
+    print("Threshold Filter: Waiting for shared memory...")
 
-    # Load memory handle
-    with open("sharpen_handle.bin", "rb") as f:
-        mem_handle = f.read()
+    # Open input shared memory
+    input_mem = shared_memory.SharedMemory(name=input_mem_name)
 
-    # Restore GPU memory
-    gpu_image = cp.cuda.runtime.ipcOpenMemHandle(mem_handle)
-    image = cp.ndarray((512, 512, 3), dtype=cp.uint8, memptr=cp.cuda.MemoryPointer(gpu_image, 0))
+    # Read image shape
+    img_shape = np.ndarray(3, dtype=np.int32, buffer=input_mem.buf, offset=0)
 
-    # Apply Thresholding
-    thresholded_image = cp.where(image > 128, 255, 0).astype(cp.uint8)
+    print("Threshold Filter: Shape received", img_shape)
 
-    # Copy result back to CPU
-    final_image = cp.asnumpy(thresholded_image)
+    # Read image data
+    img_data = np.frombuffer(input_mem.buf, dtype=np.uint8, offset=12).reshape(tuple(img_shape))
+    gpu_image = cp.asarray(img_data)
 
-    # Save final output
-    cv2.imwrite("final_output.jpg", final_image)
+    print("Threshold Filter: Applying threshold filter...")
 
-    print("Thresholding: Applied, Image saved!")
+    # **Apply Threshold**
+    gpu_thresholded = cp.where(gpu_image > threshold_value, 255, 0).astype(cp.uint8)
+
+    # Convert back to NumPy for saving
+    final_image = cp.asnumpy(gpu_thresholded)
+
+    # **Save Image**
+    cv2.imwrite(output_filename, final_image)
+
+    print(f"Threshold Filter: Image saved as {output_filename}")
+
+    # Cleanup
+    input_mem.close()
 
 if __name__ == "__main__":
-    threshold_ready = multiprocessing.Event()
-
-    threshold_process = multiprocessing.Process(target=threshold_filter)
-    threshold_process.start()
-    threshold_process.join()
+    input_mem_name = "sharpen_output"
+    output_filename = "final_output.png"
+    threshold_filter(input_mem_name, output_filename)
