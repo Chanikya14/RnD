@@ -2,46 +2,64 @@ import torch
 import torch.nn.functional as F
 import cupy as cp
 import pandas as pd
+import cv2
+import numpy as np
 
-class ObjectDetector:
-    def __init__(self):
-        self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
-        self.model.to('cuda')
-
-    def detect(self, frame_gpu):
-        frame_torch = torch.as_tensor(frame_gpu, device="cuda").permute(2, 0, 1).unsqueeze(0) / 255.0
-        frame_torch = F.interpolate(frame_torch, size=(frame_torch.shape[2] // 32 * 32, frame_torch.shape[3] // 32 * 32), mode="bilinear")
-        return self.model(frame_torch)
-
-def process_frames(queue_in, queue_out):
-    detector = ObjectDetector()
-    
+def process_frames(queue_in, queue_out, event):
+    # detector = ObjectDetector()
+    print("process started")
+    model = torch.hub.load('ultralytics/yolov5', 'yolov5s', device='cuda:0')
+    cnt = 0
     while True:
-        mem_handle, shape = queue_in.get()
-        if mem_handle is None:
+        print(cnt)
+        cnt += 1
+        item = queue_in.get()
+        if item is None:
             break  # Exit signal
+        print("processing frame")
+
+        mem_handle, shape = item
 
         ptr = cp.cuda.runtime.ipcOpenMemHandle(mem_handle)
-        base_mem = cp.cuda.UnownedMemory(ptr, int(cp.prod(shape)), owner=None)
+        base_mem = cp.cuda.UnownedMemory(ptr, np.prod(shape) * cp.uint8().itemsize, owner=None)
         frame_gpu = cp.ndarray(shape, dtype=cp.uint8, memptr=cp.cuda.MemoryPointer(base_mem, 0))
         
-        frame_copy_gpu = cp.copy(frame_gpu)
-        detections = detector.detect(frame_copy_gpu)[0]
+        # Run inference
+        results = model(cp.asnumpy(frame_gpu))
 
-        conf_threshold = 0.25
-        valid_detections = detections[detections[:, 4] > conf_threshold]
-        boxes = valid_detections[:, :4].cpu().numpy().astype(int)
-        scores = valid_detections[:, 4].cpu().numpy()
-        labels = valid_detections[:, 5].cpu().numpy()
+        print("detect completed")
+        # Parse detections
+        detections = results.pred[0]  # Tensor of shape (num_detections, 6) → [x1, y1, x2, y2, conf, cls]
 
-        detections_df = pd.DataFrame({'xmin': boxes[:, 0], 'ymin': boxes[:, 1], 'xmax': boxes[:, 2], 'ymax': boxes[:, 3], 'confidence': scores, 'name': labels})
+        frame_cpu = cp.asnumpy(frame_gpu).copy()
 
-        cp.cuda.runtime.ipcCloseMemHandle(ptr)
+        event.set()
+        # cv2.imshow('Frame', frame_cpu)
+        # cv2.waitKey(100) 
+        # return
+        # 5/0
+        # Get labels
+        names = model.names  # class index to label name
 
-        # Draw bounding boxes
-        for _, row in detections_df.iterrows():
-            x1, y1, x2, y2 = row['xmin'], row['ymin'], row['xmax'], row['ymax']
-            frame_copy_gpu[y1:y2, x1:x2] = cp.array([255, 255, 0], dtype=cp.uint8)
+        # Draw boxes and labels
+        for det in detections:
+            x1, y1, x2, y2, conf, cls = det
+            x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+            label = f'{names[int(cls)]} {conf:.2f}'
+            
+            # Draw rectangle
+            cv2.rectangle(frame_cpu, (x1, y1), (x2, y2), color=(0, 255, 0), thickness=2)
+            
+            # Put label
+            cv2.putText(frame_cpu, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 
+                        0.5, (0, 255, 0), 2)
 
-        new_handle = cp.cuda.runtime.ipcGetMemHandle(frame_copy_gpu.data.ptr)
-        queue_out.put((new_handle, frame_copy_gpu.shape))
+
+        # Convert back to CuPy
+        frame_gpu_annotated = cp.asarray(frame_cpu)
+
+        new_handle = cp.cuda.runtime.ipcGetMemHandle(frame_gpu_annotated.data.ptr)
+        print("putting in out queue")
+        queue_out.put((new_handle, frame_gpu_annotated.shape))
+    print("process done")
+    queue_out.put(None)
