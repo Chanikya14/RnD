@@ -12,6 +12,7 @@ def main(shared_mem_name):
     if image is None:
         raise ValueError("Error: Cannot load image!")
 
+    print(image.shape)
     gpu_image = cp.asarray(image, dtype=cp.uint8)
     
     # Get CUDA IPC memory handle
@@ -29,6 +30,7 @@ def main(shared_mem_name):
 
     # Store shape
     np.ndarray(3, dtype=np.int32, buffer=shared_mem.buf, offset=handle_size)[:] = gpu_image.shape
+    # print(gpu_image.shape.prod())
 
     print("Main: Image loaded, waiting for median filter to process...")
 

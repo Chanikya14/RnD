@@ -10,8 +10,9 @@ def median_filter(input_mem_name, output_mem_name):
     input_mem = shared_memory.SharedMemory(name=input_mem_name)
 
     # Read memory handle
-    handle_size = 64  # Ensure correct IPC handle size
-    mem_handle_bytes = bytes(input_mem.buf[:handle_size])
+    handle_size = 64  # Ensure correct IPC handle size\
+    handle = input_mem.buf[:handle_size]
+    mem_handle_bytes = bytes(handle)
 
     # Read image shape
     img_shape = np.ndarray(3, dtype=np.int32, buffer=input_mem.buf, offset=handle_size)
@@ -20,6 +21,7 @@ def median_filter(input_mem_name, output_mem_name):
 
     # Open CUDA memory using IPC
     cp.cuda.Device(0).use()  # Ensure CUDA is initialized
+    print(handle.shape)
     mem_ptr = cp.cuda.runtime.ipcOpenMemHandle(mem_handle_bytes)
 
     # Create CuPy MemoryPointer

@@ -36,5 +36,5 @@ def threshold_filter(input_mem_name, output_filename, threshold_value=128):
 
 if __name__ == "__main__":
     input_mem_name = "sharpen_output"
-    output_filename = "final_output.png"
+    output_filename = "finalpp_output.png"
     threshold_filter(input_mem_name, output_filename)

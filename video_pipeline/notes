@@ -1,0 +1,16 @@
+Deepstream:
+==========
+1. Capture video, Decode video using NVIDIA Video Codec SDK (NVDEC, NVENC)
+2. pre-processing => resize, normalize, frame extraction, batching using cuda, opencv
+3. use dl models(gpu backed) for object detection (GPU inference with TensorRT, DeepStream, or ONNX Runtime)
+4. Feature Extraction & Embeddings
+5. Action Recognition / Event Detection
+    Use 3D CNNs, LSTMs, or Transformers for human action recognition
+    Anomaly detection with autoencoders or self-supervised learning
+6. postprocessing => drawing boxes
+7. store
+
+conditional, loops, one to many, => examples(real life or dummy)
+goal: to built a platform which automates the building of pipeline using this primitive and should run that on any input 
+        (user might provide a library(functions)/ kernels and some pipeline structure)
+Issue: right now im embedding the code into kernels which is not desirable?!
