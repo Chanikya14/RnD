@@ -1,0 +1,4 @@
+ 04-04-2025 15:18:34:587 [pid=8737 tid=8737] NOTICE  cufio-drv:727 running in compatible mode
+ 04-04-2025 15:18:34:588 [pid=8737 tid=8737] ERROR  cufio-plat:876 Platform does not have any supported GPU!
+ 04-04-2025 15:18:34:588 [pid=8737 tid=8737] ERROR  cufio_core:997 platform is not supported by cufile
+ 04-04-2025 15:18:34:588 [pid=8737 tid=8737] ERROR  cufio_core:1091 cuFile initialization failed
